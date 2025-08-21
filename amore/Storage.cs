@@ -113,7 +113,8 @@ public sealed class AzSaLoveRepo : ILoveRepo
 
         foreach (var member in _membersByUsername.Values)
         {
-            if (member.realName.ToLowerInvariant().Contains(q))
+            if ((!string.IsNullOrEmpty(member.realName) && member.realName.ToLowerInvariant().Contains(q)) || 
+                (!string.IsNullOrEmpty(member.city) && member.city .ToLowerInvariant().Contains(q)))
             {
                 yield return member;
             }
@@ -137,6 +138,7 @@ public sealed class AzSaLoveRepo : ILoveRepo
             memberNew.Value.photoFileId = member.photoFileId;
             memberNew.Value.instagram = member.instagram;
             memberNew.Value.info = member.info;
+            memberNew.Value.city = member.city;
             await _tableMembers.UpdateEntityAsync(memberNew.Value, memberNew.Value.ETag, TableUpdateMode.Replace);
         }
     }

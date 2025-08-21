@@ -85,7 +85,7 @@ public sealed class BotHostedService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var me = await _bot.GetMe(stoppingToken);
-        _log.LogInformation("Bot @{username} v6 started", me.Username);
+        _log.LogInformation("Bot @{username} v8 started", me.Username);
 
         _bot.StartReceiving(HandleUpdateAsync, HandleErrorAsync, new()
         {
@@ -139,7 +139,7 @@ public sealed class BotHostedService : BackgroundService
             return;
         }
 
-        await HandleInit(msg, ct);
+        var member = await HandleInit(msg, ct);
 
         var text = msg.Text!.Trim();
         var parts = text.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
@@ -149,7 +149,7 @@ public sealed class BotHostedService : BackgroundService
         switch (cmd)
         {
             case "/start":
-                await HandleStartCmd(msg, ct);
+                await HandleStartCmd(member, msg, ct);
                 break;
 
             case "/help":
@@ -157,58 +157,62 @@ public sealed class BotHostedService : BackgroundService
                 break;
 
             case "/me":
-                var me = _repo.GetByUsername(msg.From.Username)!;
+                var me = member;
                 await SendProfileCard(msg.Chat.Id, me, ct);
                 break;
 
             case "/find":
-                await HandleFindCmd(msg, arg, ct);
+                await HandleFindCmd(member, msg, arg, ct);
                 break;
 
             case "/boat":
-                await HandleBoatCmd(msg, arg, ct);
+                await HandleBoatCmd(member, msg, arg, ct);
                 break;
 
             case "/boats":
-                await HandleBoatsCmd(msg, ct);
+                await HandleBoatsCmd(member, msg, ct);
                 break;
 
             case "/like":
-                await HandleLikeCmd(msg, arg, ct);
+                await HandleLikeCmd(member, msg, arg, ct);
                 break;
 
             case "/likes":
-                var likes = _repo.GetLikesFrom(msg.From.Username).ToBlockingEnumerable(cancellationToken: ct);
+                var likes = _repo.GetLikesFrom(msg.From.Username.ToLowerInvariant()).ToBlockingEnumerable(cancellationToken: ct);
                 await SendList(msg.Chat.Id, likes, "Твои лайки:", ct);
                 break;
 
             case "/likers":
-                var likersCount = _repo.GetLikesTo(msg.From.Username).ToBlockingEnumerable(cancellationToken: ct).Count();
+                var likersCount = _repo.GetLikesTo(msg.From.Username.ToLowerInvariant()).ToBlockingEnumerable(cancellationToken: ct).Count();
                 await _bot.SendMessage(msg.Chat.Id, $"У тебя {likersCount} лайков", cancellationToken: ct);
                 break;
 
             case "/matches":
-                await HandleMatchesCmd(msg, ct);
+                await HandleMatchesCmd(member, msg, ct);
                 break;
 
             case "/unlike":
-                await HandleUnlikeCmd(msg, arg, ct);
+                await HandleUnlikeCmd(member, msg, arg, ct);
                 break;
 
             case "/bio":
-                await HandleBioCmd(msg, arg, ct);
+                await HandleBioCmd(member, msg, arg, ct);
+                break;
+
+            case "/city":
+                await HandleCityCmd(member, msg, arg, ct);
                 break;
 
             case "/insta":
-                await HandleInstaCmd(msg, arg, ct);
+                await HandleInstaCmd(member, msg, arg, ct);
                 break;
 
             case "/name":
-                await HandleNameCmd(msg, arg, ct);
+                await HandleNameCmd(member, msg, arg, ct);
                 break;
 
             case "/reload":
-                await HandleReloadCmd(msg, ct);
+                await HandleReloadCmd(member, msg, ct);
                 break;
 
             default:
@@ -259,7 +263,7 @@ public sealed class BotHostedService : BackgroundService
         return user;
     }
 
-    private async Task HandleStartCmd(Message msg, CancellationToken ct)
+    private async Task HandleStartCmd(Member m, Message msg, CancellationToken ct)
     {
         _log.LogInformation("User {Username} started the bot", msg.From?.Username);
 
@@ -274,7 +278,7 @@ public sealed class BotHostedService : BackgroundService
 
     }
 
-    private async Task HandleFindCmd(Message msg, string arg, CancellationToken ct)
+    private async Task HandleFindCmd(Member m, Message msg, string arg, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(arg))
         {
@@ -288,14 +292,14 @@ public sealed class BotHostedService : BackgroundService
         }
         else
         {
-            foreach (var m in results.Take(10))
-                await SendProfileCard(msg.Chat.Id, m, ct);
+            foreach (var mr in results.Take(10))
+                await SendProfileCard(msg.Chat.Id, mr, ct);
             if (results.Count > 10)
                 await _bot.SendMessage(msg.Chat.Id, $"…и еще {results.Count - 10}.", cancellationToken: ct);
         }
     }
 
-    private async Task HandleBoatCmd(Message msg, string arg, CancellationToken ct)
+    private async Task HandleBoatCmd(Member m, Message msg, string arg, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(arg))
         {
@@ -311,12 +315,12 @@ public sealed class BotHostedService : BackgroundService
         {
             var header = $"Команда “{arg}”:";
             await _bot.SendMessage(msg.Chat.Id, header, cancellationToken: ct);
-            foreach (var m in boatMembers)
-                await SendProfileCard(msg.Chat.Id, m, ct);
+            foreach (var mb in boatMembers)
+                await SendProfileCard(msg.Chat.Id, mb, ct);
         }
     }
 
-    private async Task HandleBoatsCmd(Message msg, CancellationToken ct)
+    private async Task HandleBoatsCmd(Member m, Message msg, CancellationToken ct)
     {
         var allMembersGrouped = _repo.AllMembers().GroupBy(m => m.PartitionKey)
                     .OrderBy(g => g.Key)
@@ -324,21 +328,19 @@ public sealed class BotHostedService : BackgroundService
 
 
         var kb = new InlineKeyboardMarkup();
-        var boatBtns = new List<InlineKeyboardButton>();
-
+        
         int k = 0;
         foreach (var group in allMembersGrouped)
         {
             var boatName = group.Key;
             var btn = InlineKeyboardButton.WithCallbackData($"{group.Key} ({group.Count})", $"boat:{group.Key.Substring(0, group.Key.IndexOf('(') - 1)}");
-            boatBtns.Add(btn);
             kb.AddNewRow(btn);  // 1 boat per row?
         }
 
         await _bot.SendMessage(msg.Chat.Id, "Список лодок:", replyMarkup: kb, cancellationToken: ct);
     }
 
-    private async Task HandleLikeCmd(Message msg, string arg, CancellationToken ct)
+    private async Task HandleLikeCmd(Member m, Message msg, string arg, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(arg))
         {
@@ -370,7 +372,7 @@ public sealed class BotHostedService : BackgroundService
         if (await _likes.IsMatch(fromUsername.ToLowerInvariant(), target.Username.ToLowerInvariant()))
         {
             // Notify both parties
-            var me = _repo.GetByUsername(fromUsername)!;
+            var me = m;
             var msgA = $"🎉 У тебя мэтч с {DisplayName(target)} с лодки {target.BoatName}! Напиши привет!";
             var msgB = $"🎉 У тебя мэтч с {DisplayName(me)} с лодки {me.BoatName}! Напиши привет!";
             await _bot.SendMessage(msg.Chat.Id, msgA, cancellationToken: ct);
@@ -385,7 +387,7 @@ public sealed class BotHostedService : BackgroundService
         }
     }
 
-    private async Task HandleMatchesCmd(Message msg, CancellationToken ct)
+    private async Task HandleMatchesCmd(Member m, Message msg, CancellationToken ct)
     {
         var myLikes = _repo.GetLikesFrom(msg.From.Username.ToLowerInvariant()).ToBlockingEnumerable(cancellationToken: ct).ToHashSet();
         var mutuals = _repo.GetLikesTo(msg.From.Username.ToLowerInvariant()).ToBlockingEnumerable(cancellationToken: ct).Where(uid => myLikes.Contains(uid)).ToList();
@@ -395,12 +397,12 @@ public sealed class BotHostedService : BackgroundService
         {
             await _bot.SendMessage(msg.Chat.Id, $"У тебя {mutuals.Count} мэтчей", cancellationToken: ct);
             foreach (var name in mutuals)
-                if (_repo.GetByUsername(name.ToLowerInvariant()) is Member m)
-                    await SendProfileCard(msg.Chat.Id, m, ct);
+                if (_repo.GetByUsername(name.ToLowerInvariant()) is Member m1)
+                    await SendProfileCard(msg.Chat.Id, m1, ct);
         }
     }
 
-    private async Task HandleUnlikeCmd(Message msg, string arg, CancellationToken ct) 
+    private async Task HandleUnlikeCmd(Member m, Message msg, string arg, CancellationToken ct) 
     {
         if (string.IsNullOrWhiteSpace(arg))
         {
@@ -424,7 +426,7 @@ public sealed class BotHostedService : BackgroundService
 
     }
 
-    private async Task HandleBioCmd(Message msg, string arg, CancellationToken ct)
+    private async Task HandleBioCmd(Member m, Message msg, string arg, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(arg))
         {
@@ -432,11 +434,7 @@ public sealed class BotHostedService : BackgroundService
             return;
         }
 
-        var userUpd = _repo.GetByUsername(msg.From.Username);
-        if (userUpd.UserId == null)
-        {
-            userUpd.UserId = msg.From.Id; // Update UserId if not set
-        }
+        var userUpd = m;
 
         if (arg.Length > 1024)
         {
@@ -457,7 +455,36 @@ public sealed class BotHostedService : BackgroundService
         }
     }
 
-    private async Task HandleInstaCmd(Message msg, string arg, CancellationToken ct)
+    private async Task HandleCityCmd(Member m, Message msg, string arg, CancellationToken ct) 
+    {
+        if (string.IsNullOrWhiteSpace(arg))
+        {
+            await _bot.SendMessage(msg.Chat.Id, "/city <твой город> чтобы обновить свой город", cancellationToken: ct);
+            return;
+        }
+
+        var userUpd = m;
+
+        if (arg.Length > 128)
+        {
+            await _bot.SendMessage(msg.Chat.Id, "Название города слишком длинное. Максимум 128 символов.", cancellationToken: ct);
+            return;
+        }
+        userUpd.city = arg;
+        try
+        {
+            await _repo.UpdateMember(userUpd); // Save the updated member
+            await _bot.SendMessage(msg.Chat.Id, $"Готово!", cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Failed to update member UserId");
+            await _bot.SendMessage(msg.Chat.Id, "Произошла ошибка при обновлении твоего профиля. Пожалуйста, попробуй позже.", cancellationToken: ct);
+            return;
+        }
+    }
+
+    private async Task HandleInstaCmd(Member m, Message msg, string arg, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(arg))
         {
@@ -465,12 +492,7 @@ public sealed class BotHostedService : BackgroundService
             return;
         }
 
-        var userUpdInst = _repo.GetByUsername(msg.From.Username);
-        if (userUpdInst.UserId == null)
-        {
-            userUpdInst.UserId = msg.From.Id; // Update UserId if not set
-        }
-
+        var userUpdInst = m;
         if (arg.Length > 64)
         {
             await _bot.SendMessage(msg.Chat.Id, "Cлишком длинное instagram name. Максимум 64 символов.", cancellationToken: ct);
@@ -490,7 +512,7 @@ public sealed class BotHostedService : BackgroundService
         }
     }
 
-    private async Task HandleNameCmd(Message msg, string arg, CancellationToken ct)
+    private async Task HandleNameCmd(Member m, Message msg, string arg, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(arg))
         {
@@ -498,7 +520,7 @@ public sealed class BotHostedService : BackgroundService
             return;
         }
 
-        var userUpdName = _repo.GetByUsername(msg.From.Username);
+        var userUpdName = m;
 
         if (arg.Length > 64)
         {
@@ -519,7 +541,7 @@ public sealed class BotHostedService : BackgroundService
         }
     }
 
-    private async Task HandleReloadCmd(Message msg, CancellationToken ct)
+    private async Task HandleReloadCmd(Member m, Message msg, CancellationToken ct)
     {
         if (msg.From.Id != 99108740)
         {
@@ -604,6 +626,11 @@ public sealed class BotHostedService : BackgroundService
             .AppendLine($"👤 {m.realName} {(string.IsNullOrWhiteSpace(m.Username) ? "" : $"(@{m.Username})")}")
             .AppendLine($"⛵ Boat: {m.BoatName}")
             .AppendLine($"🧭 Captain: {m.CaptainName}");
+
+        if (!string.IsNullOrWhiteSpace(m.city))
+        {
+            captionSb.AppendLine($"🌍 City: {m.city}");
+        }
 
         if (!string.IsNullOrEmpty(m.instagram))
         {

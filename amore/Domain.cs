@@ -26,6 +26,8 @@ public class Member : ITableEntity
     public string? instagram { get; set; }
     public string? info { get; set; }
 
+    public string? city { get; set; }
+
     public long? ChatId { get; set; }
 }
 
