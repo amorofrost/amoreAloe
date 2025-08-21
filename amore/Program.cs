@@ -587,7 +587,7 @@ public sealed class BotHostedService : BackgroundService
         await _bot.SendMessage(msg.Chat.Id, "Reloaded.", cancellationToken: ct);
     }
 
-    private async Task HandleBoardcastCmd(Member m, Message msg, string arg, CancellationToken ct)
+    private async Task HandleBroadcastCmd(Member m, Message msg, string arg, CancellationToken ct)
     {
         if (msg.From.Id != 99108740)
         {
