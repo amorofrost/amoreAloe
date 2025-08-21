@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "amore": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
