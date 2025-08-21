@@ -64,6 +64,8 @@ public class Program
 
 public sealed class BotHostedService : BackgroundService
 {
+    private const string BotVer = "v0.11";
+
     private readonly ITelegramBotClient _bot;
     private readonly ILoveRepo _repo;
     private readonly LikeService _likes;
@@ -85,7 +87,7 @@ public sealed class BotHostedService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var me = await _bot.GetMe(stoppingToken);
-        _log.LogInformation("Bot @{username} v9 started", me.Username);
+        _log.LogInformation($"Bot @{me.Username} {BotVer} started");
 
         _bot.StartReceiving(HandleUpdateAsync, HandleErrorAsync, new()
         {
@@ -224,6 +226,10 @@ public sealed class BotHostedService : BackgroundService
 
             case "/reload":
                 await HandleReloadCmd(member, msg, ct);
+                break;
+
+            case "/broadcast":
+                await HandleBroadcastCmd(member, msg, arg, ct);
                 break;
 
             default:
@@ -579,6 +585,40 @@ public sealed class BotHostedService : BackgroundService
 
         await _repo.UpsertMembers();
         await _bot.SendMessage(msg.Chat.Id, "Reloaded.", cancellationToken: ct);
+    }
+
+    private async Task HandleBoardcastCmd(Member m, Message msg, string arg, CancellationToken ct)
+    {
+        if (msg.From.Id != 99108740)
+        {
+            await _bot.SendMessage(msg.Chat.Id, "Unauthorized.", cancellationToken: ct);
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(arg))
+        {
+            await _bot.SendMessage(msg.Chat.Id, "Используй /broadcast <сообщение> чтобы отправить сообщение всем участникам", cancellationToken: ct);
+            return;
+        }
+        var members = _repo.AllMembers().ToList();
+        foreach (var member in members)
+        {
+            try
+            {
+                if (member.ChatId != null)
+                {
+                    await _bot.SendMessage(member.ChatId, arg, cancellationToken: ct);
+                }
+                else if (member.UserId != null)
+                {
+                    await _bot.SendMessage(member.UserId, arg, cancellationToken: ct);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Failed to send broadcast to {Username}", member.Username);
+            }
+        }
+        await _bot.SendMessage(msg.Chat.Id, "Broadcast sent.", cancellationToken: ct);
     }
 
     private async Task HandleCallback(CallbackQuery cb, CancellationToken ct)
