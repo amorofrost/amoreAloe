@@ -85,7 +85,7 @@ public sealed class BotHostedService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var me = await _bot.GetMe(stoppingToken);
-        _log.LogInformation("Bot @{username} v5 started", me.Username);
+        _log.LogInformation("Bot @{username} v6 started", me.Username);
 
         _bot.StartReceiving(HandleUpdateAsync, HandleErrorAsync, new()
         {
@@ -124,7 +124,7 @@ public sealed class BotHostedService : BackgroundService
     }
 
     private bool IsAuthorized(User from) =>
-        from is not null && _repo.IsAuthorized(from.Username);
+        from is not null && _repo.IsAuthorized(from.Username.ToLowerInvariant());
 
     private async Task HandleMessage(Message msg, CancellationToken ct)
     {
@@ -219,11 +219,11 @@ public sealed class BotHostedService : BackgroundService
 
     private async Task<Member> HandleInit(Message msg, CancellationToken ct) 
     {
-        var user = _repo.GetByUsername(msg.From.Username);
+        var user = _repo.GetByUsername(msg.From.Username.ToLowerInvariant());
 
         if (user == null)
         {
-            _log.LogWarning("User is not registered");
+            _log.LogWarning($"User {msg.From.Username} is not registered");
             await _bot.SendMessage(msg.Chat.Id, "Не могу найти тебя в списке пользователей. Пожалуйста, попробуй /start позже (или проверь навтройки приватности telegram username в настройках телеграмма).", cancellationToken: ct);
             return null; ;
         }
@@ -387,15 +387,15 @@ public sealed class BotHostedService : BackgroundService
 
     private async Task HandleMatchesCmd(Message msg, CancellationToken ct)
     {
-        var myLikes = _repo.GetLikesFrom(msg.From.Username).ToBlockingEnumerable(cancellationToken: ct).ToHashSet();
-        var mutuals = _repo.GetLikesTo(msg.From.Username).ToBlockingEnumerable(cancellationToken: ct).Where(uid => myLikes.Contains(uid)).ToList();
+        var myLikes = _repo.GetLikesFrom(msg.From.Username.ToLowerInvariant()).ToBlockingEnumerable(cancellationToken: ct).ToHashSet();
+        var mutuals = _repo.GetLikesTo(msg.From.Username.ToLowerInvariant()).ToBlockingEnumerable(cancellationToken: ct).Where(uid => myLikes.Contains(uid)).ToList();
         if (mutuals.Count == 0)
             await _bot.SendMessage(msg.Chat.Id, "Мэтчи еще впереди 💘", cancellationToken: ct);
         else
         {
             await _bot.SendMessage(msg.Chat.Id, $"У тебя {mutuals.Count} мэтчей", cancellationToken: ct);
             foreach (var name in mutuals)
-                if (_repo.GetByUsername(name) is Member m)
+                if (_repo.GetByUsername(name.ToLowerInvariant()) is Member m)
                     await SendProfileCard(msg.Chat.Id, m, ct);
         }
     }
@@ -536,7 +536,7 @@ public sealed class BotHostedService : BackgroundService
         if (cb.From is null || cb.Message is null || string.IsNullOrWhiteSpace(cb.Data))
             return;
 
-        if (!_repo.IsAuthorized(cb.From.Username))
+        if (!_repo.IsAuthorized(cb.From.Username.ToLowerInvariant()))
         {
             await _bot.AnswerCallbackQuery(cb.Id, "Not authorized", cancellationToken: ct);
             return;
@@ -546,7 +546,7 @@ public sealed class BotHostedService : BackgroundService
         {
             var targetName = cb.Data.Substring("like:".Length);
             
-            if (targetName == cb.From.Username)
+            if (targetName == cb.From.Username.ToLowerInvariant())
             {
                 await _bot.AnswerCallbackQuery(cb.Id, "Нравиться себе - это здорово 😅", cancellationToken: ct);
                 return;
@@ -654,7 +654,7 @@ public sealed class BotHostedService : BackgroundService
     private async Task SendList(long chatId, IEnumerable<string> userNames, string title, CancellationToken ct)
     {
         var list = userNames
-            .Select(name => _repo.GetByUsername(name))
+            .Select(name => _repo.GetByUsername(name.ToLowerInvariant()))
             .Where(m => m is not null)!
             .Select(m => $"• {DisplayName(m!)}")
             .ToList();
