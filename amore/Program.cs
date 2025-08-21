@@ -85,7 +85,7 @@ public sealed class BotHostedService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var me = await _bot.GetMe(stoppingToken);
-        _log.LogInformation("Bot @{username} v8 started", me.Username);
+        _log.LogInformation("Bot @{username} v9 started", me.Username);
 
         _bot.StartReceiving(HandleUpdateAsync, HandleErrorAsync, new()
         {
@@ -111,6 +111,18 @@ public sealed class BotHostedService : BackgroundService
             if (update.Type == UpdateType.Message && update.Message!.Type == MessageType.Text)
             {
                 await HandleMessage(update.Message!, ct);
+            }
+            else if (update.Type == UpdateType.Message && update.Message.Type == MessageType.Photo)
+            {
+                var fileId = update.Message.Photo.LastOrDefault()?.FileId;
+                if (fileId is not null)
+                {
+                    var member = _repo.GetByUsername(update.Message.From!.Username.ToLowerInvariant()) ?? throw new InvalidOperationException("User not found in repo");
+                    member.photoFileId = fileId; // Save file_id for future use
+                    await _repo.UpdateMember(member);
+                    
+                    await _bot.SendMessage(update.Message.Chat.Id, "Фото профиля обновлено", cancellationToken: ct);
+                }
             }
             else if (update.Type == UpdateType.CallbackQuery)
             {
@@ -183,8 +195,7 @@ public sealed class BotHostedService : BackgroundService
                 break;
 
             case "/likers":
-                var likersCount = _repo.GetLikesTo(msg.From.Username.ToLowerInvariant()).ToBlockingEnumerable(cancellationToken: ct).Count();
-                await _bot.SendMessage(msg.Chat.Id, $"У тебя {likersCount} лайков", cancellationToken: ct);
+                await HandleLikersCmd(member, msg, ct);
                 break;
 
             case "/matches":
@@ -385,6 +396,23 @@ public sealed class BotHostedService : BackgroundService
                 await _bot.SendMessage(target.UserId, msgB, cancellationToken: ct);
             }
         }
+        else if (target.UserId != null)
+        {
+            await _bot.SendMessage(target.UserId, "Кто-то поставил тебе лайк. Кто же это может быть?", cancellationToken: ct);
+        }
+    }
+
+    private async Task HandleLikersCmd(Member m, Message msg, CancellationToken ct) 
+    {
+        var likers = _repo.GetLikesTo(msg.From.Username.ToLowerInvariant()).ToBlockingEnumerable(cancellationToken: ct);
+
+        var boats = likers
+            .Select(uid => _repo.GetByUsername(uid.ToLowerInvariant()))
+            .Where(member => member != null)
+            .GroupBy(member => member!.BoatName)
+            .OrderBy(g => g.Key);
+        var likersCount = likers.Count();
+        await _bot.SendMessage(msg.Chat.Id, $"У тебя {likersCount} лайков с лодок {string.Join(", ", boats.Select(g => g.Key))}", cancellationToken: ct);
     }
 
     private async Task HandleMatchesCmd(Member m, Message msg, CancellationToken ct)
@@ -577,10 +605,11 @@ public sealed class BotHostedService : BackgroundService
             _likes.ToggleLike(cb.From.Username.ToLowerInvariant(), targetName.ToLowerInvariant(), like: true);
             await _bot.AnswerCallbackQuery(cb.Id, "Liked! 👍", showAlert: false, cancellationToken: ct);
 
+            var me = _repo.GetByUsername(cb.From.Username.ToLowerInvariant())!;
+            var target = _repo.GetByUsername(targetName.ToLowerInvariant())!;
+
             if (await _likes.IsMatch(cb.From.Username.ToLowerInvariant(), targetName.ToLowerInvariant()))
             {
-                var me = _repo.GetByUsername(cb.From.Username.ToLowerInvariant())!;
-                var target = _repo.GetByUsername(targetName.ToLowerInvariant())!;
                 if (me.ChatId != null)
                 {
                     await _bot.SendMessage(me.ChatId, $"🎉 Кажется, это взаимно с {DisplayName(target)}!", cancellationToken: ct);
@@ -598,8 +627,11 @@ public sealed class BotHostedService : BackgroundService
                 {
                     await _bot.SendMessage(target.UserId, $"🎉 Кажется, это взаимно с {DisplayName(me)}!", cancellationToken: ct);
                 }
+            } 
+            else if (target.UserId != null) 
+            {
+                await _bot.SendMessage(target.UserId, "Кто-то поставил тебе лайк. Кто же это может быть?", cancellationToken: ct);
             }
-            
         }
 
         if (cb.Data.StartsWith("boat:"))
