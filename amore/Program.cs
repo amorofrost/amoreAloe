@@ -450,12 +450,12 @@ public sealed class BotHostedService : BackgroundService
             await _bot.SendMessage(msg.Chat.Id, "Не могу найти этого участника", cancellationToken: ct);
             return;
         }
-        if (targetToUnlike.Username == msg.From.Username)
+        if (targetToUnlike.Username == msg.From.Username.ToLowerInvariant())
         {
             await _bot.SendMessage(msg.Chat.Id, "Нравиться себе - это здорово 😅", cancellationToken: ct);
             return;
         }
-        _likes.ToggleLike(msg.From.Username, targetToUnlike.Username, like: false);
+        _likes.ToggleLike(m.Username, targetToUnlike.Username, like: false);
         await _bot.SendMessage(msg.Chat.Id, $"Лайк отменен для {DisplayName(targetToUnlike)} 👎", cancellationToken: ct);
 
     }
