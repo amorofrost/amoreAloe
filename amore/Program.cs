@@ -64,7 +64,7 @@ public class Program
 
 public sealed class BotHostedService : BackgroundService
 {
-    private const string BotVer = "v0.11";
+    private const string BotVer = "v0.13";
 
     private readonly ITelegramBotClient _bot;
     private readonly ILoveRepo _repo;
