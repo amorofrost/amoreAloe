@@ -34,6 +34,10 @@ public class Member : ITableEntity
 
 public sealed record ProfileCard(Member Member);
 
+public sealed record Like(string From, string To);
+
+public sealed record MemberStat(string Member, int LikesSent, int LikesReceived, int Matches);
+
 public static class Texts
 {
     public const string Help =
@@ -55,6 +59,7 @@ public static class Texts
 /insta - обновить Instagram профиль, например, /insta amorofrost
 /name - обновить отображаемое имя, например, /name Андрей
 /city - обновить город, например, /city Москва
+/stats - статистика бота
 
 Совет: Используй 👍 кнопку лайка на профилях
 

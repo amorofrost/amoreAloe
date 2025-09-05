@@ -64,24 +64,24 @@ public class Program
 
 public sealed class BotHostedService : BackgroundService
 {
-    private const string BotVer = "v0.13";
+    private const string BotVer = "v0.16";
 
     private readonly ITelegramBotClient _bot;
     private readonly ILoveRepo _repo;
     private readonly LikeService _likes;
     private readonly ILogger<BotHostedService> _log;
 
-    private readonly BlobServiceClient _blobServiceClient;
-    private readonly BlobContainerClient _blobContainerClient;
+    private DateTime _lastStatsUpdate = DateTime.MinValue;
+    private string _lastStats = string.Empty;
+    private bool _lock = false;
+    private object _lockObj = new();
 
-    public BotHostedService(ITelegramBotClient bot, ILoveRepo repo, LikeService likes, ILogger<BotHostedService> log, BlobServiceClient blobServiceClient)
+    public BotHostedService(ITelegramBotClient bot, ILoveRepo repo, LikeService likes, ILogger<BotHostedService> log)
     {
         _bot = bot; 
         _repo = repo; 
         _likes = likes;
         _log = log; 
-        _blobServiceClient = blobServiceClient;
-        _blobContainerClient = _blobServiceClient.GetBlobContainerClient("amore2025members");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -230,6 +230,10 @@ public sealed class BotHostedService : BackgroundService
 
             case "/broadcast":
                 await HandleBroadcastCmd(member, msg, arg, ct);
+                break;
+
+            case "/stats":
+                await HandleStatsCmd(member, msg, ct);
                 break;
 
             default:
@@ -619,6 +623,89 @@ public sealed class BotHostedService : BackgroundService
             }
         }
         await _bot.SendMessage(msg.Chat.Id, "Broadcast sent.", cancellationToken: ct);
+    }
+
+    private async Task HandleStatsCmd(Member m, Message msg, CancellationToken ct) 
+    {
+        if ((DateTime.UtcNow - _lastStatsUpdate).TotalMinutes > 5 || _lastStats == string.Empty) 
+        {
+            _lastStats = await UpdateStats();
+            _lastStatsUpdate = DateTime.UtcNow;
+        }
+
+        await _bot.SendMessage(msg.Chat.Id, _lastStats, ParseMode.MarkdownV2, cancellationToken: ct);
+    }
+
+    private async Task<string> UpdateStats() 
+    {
+        var sb = new StringBuilder();
+
+        var allLikes = new List<Like>();
+        await foreach (var l in _repo.AllLikes())
+        {
+            allLikes.Add(l);
+        }
+
+        var allMembers = _repo.AllMembers().ToList();
+
+        Dictionary<string, HashSet<string>> likesFromDict = allLikes.GroupBy(l => l.From).ToDictionary(g => g.Key, g => g.Select(l => l.To).ToHashSet());
+        Dictionary<string, HashSet<string>> likesToDict = allLikes.GroupBy(l => l.To).ToDictionary(g => g.Key, g => g.Select(l => l.From).ToHashSet());
+
+        sb.AppendLine("``` Всего лайков отправлено: " + allLikes.Count);
+        sb.AppendLine("Активных (отправивших лайк) пользователей: " + likesFromDict.Count);
+        sb.AppendLine("Всего пользователей: " + allMembers.Count);
+
+        var fromCounts = likesFromDict.Select(kvp => kvp.Value.Count);
+        var toCounts = likesToDict.Select(kvp => kvp.Value.Count);
+
+        sb.AppendLine("Лайков отправлено (на человека): " + Math.Round(fromCounts.Average(), 1) + " в среднем (среди активных), " + fromCounts.Max() + " максимально");
+        sb.AppendLine("Лайков получено (на человека): " + Math.Round(toCounts.Average(), 1) + " в среднем (по всем), " + toCounts.Max() + " максимально");
+        sb.AppendLine();
+
+        var matches = 0;
+        var matchesPerUser = new Dictionary<string, int>();
+        var matchesPerActiveUser = new Dictionary<string, int>();
+
+        var userStats = new List<MemberStat>();
+
+        foreach (var m in allMembers)
+        {
+            var member = m.RowKey;
+            var sent = likesFromDict.ContainsKey(member) ? likesFromDict[member] : new();
+            var received = likesToDict.ContainsKey(member) ? likesToDict[member] : new();
+
+            matchesPerUser.Add(member, 0);
+            if (sent.Count > 0)
+            {
+                matchesPerActiveUser.Add(member, 0);
+            }
+            var userMatches = 0;
+
+            // member == amorofrost;
+            foreach (var to in sent)
+            {
+                // to == dashingdasha
+
+                // check that dashingdasha has sent a like to amorofrost:
+                // likesToDict has a key amoroforst && likesToDict[amorofrost] contains a like from dashingdasha
+                if (received.Contains(to))
+                {
+                    userMatches++;
+                    matchesPerUser[member]++;
+                    if (sent.Count > 0)
+                    {
+                        matchesPerActiveUser[member]++;
+                    }
+                }
+            }
+
+            //userStats.Add(new MemberStat(member, sent.Count, received.Count, userMatches));
+            matches += userMatches;
+        }
+
+        sb.AppendLine(matches / 2 + " (уникальных пар) мэтчей всего, " + Math.Round(matchesPerActiveUser.Values.Average(), 1) + " в среднем (среди активных), " + matchesPerUser.Values.Max() + " максимально```");
+    
+        return sb.ToString();
     }
 
     private async Task HandleCallback(CallbackQuery cb, CancellationToken ct)

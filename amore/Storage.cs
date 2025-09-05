@@ -11,6 +11,7 @@ public interface ILoveRepo
     IEnumerable<Member> SearchMembers(string query);
     IEnumerable<Member> MembersByBoatOrCaptain(string query);
     IEnumerable<Member> AllMembers();
+    IAsyncEnumerable<Like> AllLikes();
 
     // Likes
     Task AddLike(string fromUserName, string toUserName);
@@ -18,6 +19,7 @@ public interface ILoveRepo
     Task<bool> HasLiked(string fromUserName, string toUserName);
     IAsyncEnumerable<string> GetLikesFrom(string fromUserName);
     IAsyncEnumerable<string> GetLikesTo(string toUserName);
+
 
     // Roster management
     Task UpsertMembers();
@@ -56,6 +58,14 @@ public sealed class AzSaLoveRepo : ILoveRepo
     public IEnumerable<Member> AllMembers()
     {
         return _membersByUsername.Values.OrderBy(m => m.realName);
+    }
+
+    public async IAsyncEnumerable<Like> AllLikes()
+    {
+        await foreach (var likeFrom in _tableLikesFrom.QueryAsync<TableEntity>())
+        {
+            yield return new (likeFrom.PartitionKey, likeFrom.RowKey);
+        }
     }
 
     public Member? GetByUsername(string usernameNoAtLower) =>
